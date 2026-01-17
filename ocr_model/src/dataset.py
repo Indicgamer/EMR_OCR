@@ -36,8 +36,12 @@ class OCRDataset(Dataset):
         
         # Build character set
         self.char_set = self._build_char_set()
-        self.char2idx = {char: idx for idx, char in enumerate(self.char_set)}
-        self.idx2char = {idx: char for char, idx in self.char2idx.items()}
+        # IMPORTANT: Index 0 is reserved for CTC blank character
+        # Character indices start from 1
+        self.char2idx = {char: (idx + 1) for idx, char in enumerate(self.char_set)}
+        self.idx2char = {(idx + 1): char for char, idx in self.char2idx.items()}
+        # Add blank character mapping
+        self.idx2char[0] = ''  # Blank character
         
         # Data augmentation pipeline
         self.augment_transforms = A.Compose([
@@ -70,9 +74,11 @@ class OCRDataset(Dataset):
         for char in text:
             if char in self.char2idx:
                 indices.append(self.char2idx[char])
-            else:
-                # Unknown character, skip or use default
-                indices.append(self.char2idx.get(' ', 0))
+            # Skip unknown characters - don't add anything
+        
+        # If text is empty after filtering, add a space
+        if not indices:
+            indices.append(self.char2idx[' '])
         
         return torch.tensor(indices, dtype=torch.long)
     
@@ -150,8 +156,12 @@ class MedicalDocumentDataset(Dataset):
         
         # Build character set
         self.char_set = self._build_char_set()
-        self.char2idx = {char: idx for idx, char in enumerate(self.char_set)}
-        self.idx2char = {idx: char for char, idx in self.char2idx.items()}
+        # IMPORTANT: Index 0 is reserved for CTC blank character
+        # Character indices start from 1
+        self.char2idx = {char: (idx + 1) for idx, char in enumerate(self.char_set)}
+        self.idx2char = {(idx + 1): char for char, idx in self.char2idx.items()}
+        # Add blank character mapping
+        self.idx2char[0] = ''  # Blank character
         
         print(f"Loaded {len(self.samples)} samples")
         print(f"Character set size: {len(self.char_set)}")

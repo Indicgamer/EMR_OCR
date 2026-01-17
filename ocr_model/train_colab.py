@@ -487,7 +487,7 @@ def decode_ctc_output(predicted_indices, idx2char, blank_idx=0):
     prev_idx = None
     
     for idx in predicted_indices:
-        idx_val = idx.item()
+        idx_val = idx.item() if hasattr(idx, 'item') else int(idx)
         # Skip blank characters (index 0)
         if idx_val != blank_idx:
             # Skip consecutive duplicates
@@ -501,7 +501,12 @@ def decode_ctc_output(predicted_indices, idx2char, blank_idx=0):
     
     return ''.join(decoded)
 
+print("\nDebug info:")
+print(f"  idx2char keys sample: {list(train_dataset.idx2char.keys())[:10]}")
+print(f"  Total characters in idx2char: {len(train_dataset.idx2char)}")
+
 with torch.no_grad():
+    batch_count = 0
     for batch in tqdm(test_loader, desc='Testing'):
         images = batch['images'].to(device)
         outputs = model(images)
@@ -510,6 +515,14 @@ with torch.no_grad():
         log_probs = torch.nn.functional.log_softmax(outputs, dim=2)
         predicted_indices = torch.argmax(log_probs, dim=2)
         
+        # Debug: print first batch info
+        if batch_count == 0:
+            print(f"\n  Output shape: {outputs.shape}")
+            print(f"  Predicted indices shape: {predicted_indices.shape}")
+            print(f"  First sequence indices (first 20): {predicted_indices[0, :20]}")
+            print(f"  Max index in predictions: {predicted_indices.max().item()}")
+            print(f"  Min index in predictions: {predicted_indices.min().item()}")
+        
         for idx_seq in predicted_indices:
             text = decode_ctc_output(idx_seq, train_dataset.idx2char, blank_idx=0)
             predictions.append(text.strip())
@@ -517,6 +530,14 @@ with torch.no_grad():
         # Get ground truth
         for text in batch['texts']:
             ground_truths.append(text)
+        
+        batch_count += 1
+        
+        # Print first prediction
+        if batch_count == 1:
+            print(f"  First prediction attempt: '{predictions[0][:50] if predictions[0] else 'EMPTY'}'")
+            print(f"  First ground truth: '{ground_truths[0][:50]}'")
+
 
 print(f"Generated {len(predictions)} predictions")
 print(f"Ground truth samples: {len(ground_truths)}")
