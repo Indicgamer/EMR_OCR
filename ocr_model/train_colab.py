@@ -270,7 +270,7 @@ print("\n" + "=" * 80)
 print("SECTION 9: Training Configuration")
 print("=" * 80)
 
-num_epochs = 30
+num_epochs = 100  # Increased from 30 to allow proper learning
 learning_rate = 1e-4
 weight_decay = 1e-5
 
@@ -312,7 +312,7 @@ history = {
 }
 
 best_val_loss = float('inf')
-patience = 5
+patience = 20  # Increased from 5 - allow more epochs without improvement
 patience_counter = 0
 
 print(f"Checkpoint directory: {checkpoint_dir}")
