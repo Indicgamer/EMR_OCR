@@ -17,19 +17,19 @@ def run_training(model, processor, train_dataset, val_dataset, output_dir):
         return {"cer": cer}
 
     training_args = Seq2SeqTrainingArguments(
-        predict_with_generate=True,
-        evaluation_strategy="steps",
-        per_device_train_batch_size=4,
-        per_device_eval_batch_size=4,
-        fp16=True, # Critical for Colab GPU
-        output_dir=output_dir,
-        logging_steps=10,
-        eval_steps=100,
-        save_steps=100,
-        num_train_epochs=20,
-        weight_decay=0.01,
-        load_best_model_at_end=True,
-        save_total_limit=2,
+    predict_with_generate=True,
+    eval_strategy="steps",        # <--- Change this from evaluation_strategy
+    per_device_train_batch_size=4,
+    per_device_eval_batch_size=4,
+    fp16=True, 
+    output_dir=output_dir,
+    logging_steps=10,
+    eval_steps=100,
+    save_steps=100,
+    num_train_epochs=20,
+    weight_decay=0.01,
+    load_best_model_at_end=True,
+    save_total_limit=2,
     )
 
     trainer = Seq2SeqTrainer(
