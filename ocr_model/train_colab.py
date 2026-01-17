@@ -481,20 +481,37 @@ print("\nGenerating predictions...")
 predictions = []
 ground_truths = []
 
+def decode_ctc_output(predicted_indices, idx2char, blank_idx=0):
+    """Decode CTC output by removing blanks and consecutive duplicates"""
+    decoded = []
+    prev_idx = None
+    
+    for idx in predicted_indices:
+        idx_val = idx.item()
+        # Skip blank characters (index 0)
+        if idx_val != blank_idx:
+            # Skip consecutive duplicates
+            if idx_val != prev_idx:
+                char = idx2char.get(idx_val, '')
+                if char:  # Only add non-empty characters
+                    decoded.append(char)
+            prev_idx = idx_val
+        else:
+            prev_idx = None
+    
+    return ''.join(decoded)
+
 with torch.no_grad():
     for batch in tqdm(test_loader, desc='Testing'):
         images = batch['images'].to(device)
         outputs = model(images)
         
-        # Decode predictions
+        # Decode predictions using CTC rules
         log_probs = torch.nn.functional.log_softmax(outputs, dim=2)
         predicted_indices = torch.argmax(log_probs, dim=2)
         
         for idx_seq in predicted_indices:
-            text = ''.join([
-                train_dataset.idx2char.get(idx.item(), '')
-                for idx in idx_seq
-            ])
+            text = decode_ctc_output(idx_seq, train_dataset.idx2char, blank_idx=0)
             predictions.append(text.strip())
         
         # Get ground truth
