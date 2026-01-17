@@ -1,41 +1,62 @@
+from transformers import pipeline
 import re
 import json
 
-class LabTableParser:
+class SimpleMedicalNER:
     def __init__(self):
-        # Stage 3: Semantic Mapping (Based on PDF 2 & 4 Standards)
-        self.loinc_map = {
-            "HEMOGLOBIN": {"code": "718-7", "unit": "g/dL"},
-            "PLATELET COUNT": {"code": "777-3", "unit": "10^3/uL"},
-            "RBC COUNT": {"code": "2897-1", "unit": "10^6/uL"},
-            "MCV": {"code": "30428-7", "unit": "fL"},
-            "WBC": {"code": "6690-2", "unit": "/cumm"}
+        # Load a lightweight, high-speed Biomedical NER model
+        print("[*] Initializing NER Engine...")
+        self.ner_model = pipeline(
+            "ner", 
+            model="d4data/biomedical-ner-all", 
+            aggregation_strategy="simple"
+        )
+        
+        # Simple fallback mapping for LOINC codes (Stage 5 PDF 3)
+        self.loinc_codes = {
+            "HEMOGLOBIN": "718-7",
+            "RBC COUNT": "2897-1",
+            "WBC": "6690-2",
+            "PLATELET COUNT": "777-3"
         }
 
-    def parse_ocr_text(self, text):
-        results = []
-        lines = text.split('\n')
+    def extract(self, text):
+        # 1. Run NER on the text
+        # This identifies 'Diagnostic_procedure' (Tests) and 'Lab_value' (Numbers)
+        entities = self.ner_model(text)
         
-        for label, info in self.loinc_map.items():
-            for line in lines:
-                if label in line.upper():
-                    # Regex to find all numbers in the line (handles decimals)
-                    # This captures values from all 3 columns in your image
-                    values = re.findall(r"[-+]?\d*\.\d+|\d+", line)
-                    
-                    if values:
-                        # We take the LAST value found on the line (the most recent column)
-                        current_val = values[-1]
-                        results.append({
-                            "test": label,
-                            "value": float(current_val),
-                            "unit": info["unit"],
-                            "loinc": info["code"]
-                        })
-        return results
+        extracted_results = []
+        
+        # 2. Structural Parsing logic for your specific tabular text
+        # Because Tesseract separates labels and values, we find labels and then 
+        # look for the nearest numbers.
+        
+        # Extract labels found by NER
+        labels = [e['word'].upper() for e in entities if e['entity_group'] in ['Diagnostic_procedure', 'Detailed_description']]
+        # Extract values using a simple Regex for speed (Stage 3 PDF 3)
+        values = re.findall(r"[-+]?\d*\.\d+|\d+", text)
 
-# Test Stage 2 with your provided text
-raw_ocr = """--- EXTRACTED TEXT ---
+        # Match labels to values (based on the order they appear in your OCR output)
+        # Your OCR output lists labels first, then values.
+        for i in range(min(len(labels), len(values))):
+            test_name = labels[i]
+            # Clean common OCR noise from labels
+            test_name = re.sub(r'[^A-Z\s]', '', test_name).strip()
+            
+            if len(test_name) > 2: # Ignore tiny noise strings
+                extracted_results.append({
+                    "test": test_name,
+                    "value": values[i],
+                    "loinc": self.loinc_codes.get(test_name, "30428-7"), # Default to MCV if unknown
+                    "unit": "standard"
+                })
+
+        return extracted_results
+
+# --- EXECUTION ---
+# Using the specific OCR output you provided
+raw_text = """
+--- EXTRACTED TEXT ---
 GE Te ve0! TENOR
 
 PLATELET INDICES -
@@ -228,7 +249,11 @@ mil/eumm
 16.8
 
 14310
-/cumm"""
-parser = LabTableParser()
-extracted_entities = parser.parse_ocr_text(raw_ocr)
-print(json.dumps(extracted_entities, indent=2))
+/cumm
+"""
+
+extractor = SimpleMedicalNER()
+structured_data = extractor.extract(raw_text)
+
+print("\n--- STAGE 2: NER EXTRACTED DATA ---")
+print(json.dumps(structured_data, indent=2))
