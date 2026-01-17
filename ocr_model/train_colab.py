@@ -37,26 +37,36 @@ for pkg in packages:
 print("Dependencies installed successfully!")
 
 # ============================================================================
-# SECTION 3: Mount Google Drive & Set Paths
+# SECTION 3: Setup Colab Environment & Clone Repository
 # ============================================================================
 print("\n" + "=" * 80)
-print("SECTION 3: Mount Google Drive & Set Paths")
+print("SECTION 3: Setup Colab Environment & Clone Repository")
 print("=" * 80)
 
+# Check if running in Colab
 try:
     from google.colab import drive
-    drive.mount('/content/drive')
-    base_path = '/content/drive/MyDrive/EMR_OCR'
-    print(f"Google Drive mounted at: {base_path}")
-except:
-    # If not in Colab, use current directory
-    # First check if data directory exists locally (Windows path)
+    IN_COLAB = True
+    print("Running in Google Colab!")
+except ImportError:
+    IN_COLAB = False
+    print("Running locally (not in Colab)")
+
+if IN_COLAB:
+    # Clone repository to Colab
+    print("Cloning EMR_OCR repository...")
+    subprocess.run(['git', 'clone', '--depth', '1', 
+                    'https://github.com/Indicgamer/EMR_OCR.git', 
+                    '/content/EMR_OCR'], 
+                   check=False, capture_output=True)
+    
+    base_path = '/content/EMR_OCR'
+    print(f"Repository cloned to: {base_path}")
+else:
+    # Local execution - use relative paths
     if os.path.exists('../data'):
         base_path = '..'
-        print(f"Using local path: {base_path} (../data found)")
-    elif os.path.exists('/content/EMR_OCR'):
-        base_path = '/content/EMR_OCR'
-        print(f"Using Colab path: {base_path}")
+        print(f"Using local path: {base_path}")
     else:
         base_path = '.'
         print(f"Using current directory: {base_path}")
