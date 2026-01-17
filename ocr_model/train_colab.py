@@ -50,8 +50,16 @@ try:
     print(f"Google Drive mounted at: {base_path}")
 except:
     # If not in Colab, use current directory
-    base_path = '/content/EMR_OCR' if os.path.exists('/content/EMR_OCR') else '.'
-    print(f"Using local path: {base_path}")
+    # First check if data directory exists locally (Windows path)
+    if os.path.exists('../data'):
+        base_path = '..'
+        print(f"Using local path: {base_path} (../data found)")
+    elif os.path.exists('/content/EMR_OCR'):
+        base_path = '/content/EMR_OCR'
+        print(f"Using Colab path: {base_path}")
+    else:
+        base_path = '.'
+        print(f"Using current directory: {base_path}")
 
 # Add project to path
 sys.path.insert(0, f'{base_path}/ocr_model/src')
