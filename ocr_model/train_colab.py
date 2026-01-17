@@ -199,6 +199,12 @@ print(f"Train samples: {len(train_dataset)}")
 print(f"Val samples: {len(val_dataset)}")
 print(f"Test samples: {len(test_dataset)}")
 print(f"Character set size: {len(train_dataset.char_set)}")
+print(f"Character set (first 20): {train_dataset.char_set[:20]}")
+print(f"char2idx sample (first 5): {dict(list(train_dataset.char2idx.items())[:5])}")
+print(f"idx2char has blank (0)? {0 in train_dataset.idx2char}")
+print(f"idx2char[0]: '{train_dataset.idx2char[0]}'")
+print(f"Max idx in idx2char: {max(train_dataset.idx2char.keys())}")
+print(f"Total idx2char entries: {len(train_dataset.idx2char)}")
 
 # ============================================================================
 # SECTION 7: Create Data Loaders
@@ -252,9 +258,10 @@ print("=" * 80)
 device = get_device()
 
 # Create model
+# num_classes should be len(char_set) + 1 to account for CTC blank at index 0
 model = create_model(
     model_type="CRNN",
-    num_classes=len(train_dataset.char_set),
+    num_classes=len(train_dataset.char_set) + 1,
     pretrained=True
 )
 
