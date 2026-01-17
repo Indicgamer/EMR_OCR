@@ -110,12 +110,86 @@ class RobustEMRExtractor:
 
 # --- EXECUTION ---
 ocr_noise = """
-tHlemoptohin 11.6 ginfdl 130-17.0
-racked Cell VY 45.2 % 40-50
-SUNT 5.10 mill/emm BGG
-Toil WBC Count 9200 cells/euram
+--- EXTRACTED TEXT ---
+Test Report
+K.P. Patil Building,
+Near Shivaji Maharaj Statue,
+Mohopada, Tal. Khalapur,
+Olst. Raigad - 410 222.
+
+Ue RTL
+
+ 
+
+\ SHREE DIAGNOSTIC
+
+    
+ 
+     
+       
+ 
+ 
+     
+
+Pati mC 5 :
+Y | : i Geader sMale
+
+.
+
+HBB doctor. 7-Apr-2025 10-1 AM
+ao |
+
+|
+
+i, oon & ¢ OUNT C c ne ra
+
+tHlemoptohin
+
+  
+
+11.6 ginfdl 130-17.0
+
+racked Cell VY, . ~y
+
+6 Packed Coll Volume CHCT) 452 %, 40-50
+RB -
+
+sunt 5.10 mill/emm BGG
+Mean Cell Volume( MCV) BAG n WS-10T
+‘Mean Celi Hemoplobin( MCHY 22.7 pr 27-33
+Mean Ceil Hb Conc( MCHC) 25.7 xy 32-38
+Toil WBC Count 9200 cells/euram 4000-11000
+Differential % WBCs count
 Neutrophils 66 yy 30-70
-PIATELET COUNT 398000
+Lymphocytes 24 : XY, 20-40
+t i esinophits 4 % LG
+
+PI, recy
+Monocytes 06 % 0-10
+PO ey
+Absolute Differential Count:
+Absolute Neutrophils Count 6072 feumm 2000-7000
+Absolute Lymphocytes Count 2208 /Joumm 1000-3000
+Absolute Monocytes Count 952 / cute 200-1000
+Absolute Eosinophils Count, AEC 30H /eunm 20-500
+Platelet Count 398000 cetls/cumm FY
+Ponte ec La pectence
+
+ENO OF REPORT
+
+Scan to Valtdate £5 .
+
+Or. Swapnil V.Sirmukaddam
+M.0 (#athalogy)
+
+  
+
+purpose.
+ton with clinical Sndeng
+
+ 
+
+reco gree
 """
 
 pipeline = RobustEMRExtractor()
