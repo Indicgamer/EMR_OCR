@@ -41,7 +41,7 @@ def extract_text_from_image(image_path):
 # --- Simple usage for your workflow ---
 if __name__ == "__main__":
     # Test on one of your images
-    input_file = "/content/EMR_OCR/data/lbmaske/Input/AHD-0425-PA-0008061_E-mahendrasinghdischargecard_250427_1114@E.pdf_page_13.png" 
+    input_file = "content\EMR_OCR\data\lbmaske\Input\BLR-0425-PA-0037318_SASHANK P K 0037318 2 OF 2_28-04-2025_1007-19_AM@E.pdf_page_20.png" 
     result = extract_text_from_image(input_file)
     
     print("--- EXTRACTED TEXT ---")

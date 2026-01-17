@@ -1,198 +1,123 @@
 import re
 import json
 import uuid
+import sys
+import argparse
 from datetime import datetime
 from difflib import SequenceMatcher
 
-class RobustMedicalDictionary:
-    """Stage 5: Canonical Dictionary with Error-Prone Stems"""
+class UniversalClinicalRegistry:
+    """Stage 5: Comprehensive Registry for Tests, Vitals, and Meds"""
     def __init__(self):
-        # We define 'Stems' (unique parts of words) to identify tests even if garbled
+        # Maps Stems/Synonyms to Canonical FHIR-ready entries
         self.registry = {
-            "HEMOGLOBIN": {"code": "718-7", "unit": "g/dL", "stems": ["HEMO", "GLOBI", "HGB", "HLEMO"]},
-            "WBC COUNT": {"code": "6690-2", "unit": "cells/cumm", "stems": ["WBC", "WHITE", "LEUCO", "TOIL"]},
+            # --- HEMATOLOGY (CBC) ---
+            "HEMOGLOBIN": {"code": "718-7", "unit": "g/dL", "stems": ["HEMO", "GLOBI", "HGB", "THLEMO", "HB"]},
+            "WBC COUNT": {"code": "6690-2", "unit": "/uL", "stems": ["WBC", "WHITE", "LEUCO", "TOIL"]},
             "RBC COUNT": {"code": "2897-1", "unit": "mill/cmm", "stems": ["RBC", "RED CELL", "SUNT"]},
-            "PLATELET COUNT": {"code": "777-3", "unit": "cells/cumm", "stems": ["PLATE", "PLT", "PIATE"]},
+            "PLATELET": {"code": "777-3", "unit": "/uL", "stems": ["PLATE", "PLT", "PIATE"]},
             "PCV": {"code": "20570-8", "unit": "%", "stems": ["PCV", "HCT", "PACKED", "RACKED"]},
-            "MCV": {"code": "30428-7", "unit": "fL", "stems": ["MCV", "CELL VOL"]},
-            "MCH": {"code": "28539-4", "unit": "pg", "stems": ["MCH", "CELI HEMO"]},
             "NEUTROPHILS": {"code": "770-8", "unit": "%", "stems": ["NEUT", "POLY"]},
             "LYMPHOCYTES": {"code": "731-0", "unit": "%", "stems": ["LYMP", "LYMPH"]},
-            "EOSINOPHILS": {"code": "711-2", "unit": "%", "stems": ["EOSI", "ESINO"]},
-            "MONOCYTES": {"code": "742-7", "unit": "%", "stems": ["MONO"]}
+            
+            # --- RENAL (KFT) ---
+            "CREATININE": {"code": "2160-0", "unit": "mg/dL", "stems": ["CREAT", "CREA"]},
+            "UREA": {"code": "22664-7", "unit": "mg/dL", "stems": ["UREA"]},
+            "URIC ACID": {"code": "2943-0", "unit": "mg/dL", "stems": ["URIC"]},
+            
+            # --- LIVER (LFT) ---
+            "BILIRUBIN": {"code": "1975-2", "unit": "mg/dL", "stems": ["BILI", "BILIR"]},
+            "SGOT": {"code": "1920-8", "unit": "U/L", "stems": ["SGOT", "AST"]},
+            "SGPT": {"code": "1742-6", "unit": "U/L", "stems": ["SGPT", "ALT"]},
+            
+            # --- DIABETES & LIPIDS ---
+            "GLUCOSE": {"code": "2339-0", "unit": "mg/dL", "stems": ["GLUC", "SUGAR", "FBS", "PPBS"]},
+            "HBA1C": {"code": "4548-4", "unit": "%", "stems": ["HBA1C", "GLYCO"]},
+            "CHOLESTEROL": {"code": "2093-3", "unit": "mg/dL", "stems": ["CHOL", "CHOLEST"]},
+            
+            # --- VITALS ---
+            "BLOOD PRESSURE": {"code": "85354-9", "unit": "mmHg", "stems": ["BP", "SYS", "DIA", "PRESSURE"]},
+            "PULSE": {"code": "8867-4", "unit": "bpm", "stems": ["PULSE", "HEART RATE", "HR"]},
+            "SPO2": {"code": "2708-6", "unit": "%", "stems": ["SPO2", "SATURATION", "OXYGEN"]}
         }
 
-class RobustEMRExtractor:
+class EMREngine:
     def __init__(self):
-        self.db = RobustMedicalDictionary()
+        self.registry = UniversalClinicalRegistry().registry
 
-    def _normalize(self, text):
-        """Removes noise and heals common character swaps"""
-        text = text.upper()
-        text = re.sub(r'[^A-Z0-9\s\.]', '', text) # Remove junk symbols
-        return text
+    def _clean(self, text):
+        return re.sub(r'[^A-Z0-9\s\.\/]', '', text.upper())
 
-    def _get_similarity(self, a, b):
-        return SequenceMatcher(None, a, b).ratio()
-
-    def _extract_value(self, line_text):
-        """
-        Intelligent Value Picker:
-        Finds the most likely 'Patient Result' by ignoring typical reference range patterns.
-        """
-        # Find all numbers (including decimals)
-        nums = re.findall(r"(\d+\.?\d*)", line_text)
-        if not nums: return None
+    def _extract_numeric(self, line):
+        """Advanced numeric extraction including BP patterns (120/80)"""
+        # Search for BP format first
+        bp_match = re.search(r"(\d{2,3}\/\d{2,3})", line)
+        if bp_match:
+            return bp_match.group(1)
         
-        # Heuristic: The result is usually the first number that isn't a single digit noise
+        # Search for standard decimals, ignoring range patterns
+        nums = re.findall(r"(\d+\.?\d*)", line)
+        if not nums: return None
+        # Return first significant number
         for n in nums:
-            if len(n) > 1 or n in ["0", "1"]: # Keep 0 or 1 for counts, skip single digit noise
-                return n
+            if len(n) > 1 or n in ["0", "1"]: return n
         return nums[0]
 
-    def process_ocr(self, raw_text):
+    def parse(self, raw_text):
         extracted = []
         lines = raw_text.split('\n')
 
         for line in lines:
-            clean_line = self._normalize(line)
-            if len(clean_line) < 3: continue
+            clean_line = self._clean(line)
+            if len(clean_line) < 2: continue
 
-            matched_test = None
-            highest_score = 0
+            best_match = None
+            for test, info in self.registry.items():
+                if any(stem in clean_line for stem in info['stems']):
+                    val = self._extract_numeric(line)
+                    if val:
+                        extracted.append({
+                            "attribute": test,
+                            "value": val,
+                            "unit": info['unit'],
+                            "loinc": info['code']
+                        })
+                        break 
 
-            # 1. Scoring Logic: Check against stems and canonical names
-            for test, info in self.db.registry.items():
-                # Check stems
-                for stem in info['stems']:
-                    if stem in clean_line:
-                        score = 0.8 # Base score for stem match
-                        # Increase score if the line is also fuzzy-similar to the test name
-                        score += (self._get_similarity(clean_line, test) * 0.2)
-                        
-                        if score > highest_score:
-                            highest_score = score
-                            matched_test = test
+        return self._to_fhir(extracted)
 
-            # 2. Threshold Check (Must be at least 70% confident)
-            if matched_test and highest_score > 0.7:
-                val = self._extract_value(line)
-                if val:
-                    data = self.db.registry[matched_test]
-                    extracted.append({
-                        "test": matched_test,
-                        "value": float(val),
-                        "code": data["code"],
-                        "unit": data["unit"]
-                    })
-
-        return self._generate_fhir(extracted)
-
-    def _generate_fhir(self, data):
-        bundle = {"resourceType": "Bundle", "type": "collection", "entry": []}
-        seen = set() # Prevent duplicates from 'Absolute' sections
+    def _to_fhir(self, data):
+        bundle = {"resourceType": "Bundle", "type": "collection", "timestamp": datetime.now().isoformat(), "entry": []}
+        seen = set()
         for item in data:
-            if item['test'] in seen: continue
-            seen.add(item['test'])
+            uid = f"{item['attribute']}_{item['value']}"
+            if uid in seen: continue
+            seen.add(uid)
             
-            obs = {
+            entry = {
                 "fullUrl": f"urn:uuid:{uuid.uuid4()}",
                 "resource": {
                     "resourceType": "Observation",
                     "status": "final",
-                    "code": {"coding": [{"system": "http://loinc.org", "code": item["code"], "display": item["test"]}]},
-                    "valueQuantity": {"value": item["value"], "unit": item["unit"]},
-                    "effectiveDateTime": datetime.now().isoformat()
+                    "code": {"coding": [{"system": "http://loinc.org", "code": item['loinc'], "display": item['attribute']}]},
+                    "valueString" if '/' in str(item['value']) else "valueQuantity": 
+                        {"value": float(item['value']), "unit": item['unit']} if '/' not in str(item['value']) else item['value']
                 }
             }
-            bundle["entry"].append(obs)
+            bundle["entry"].append(entry)
         return bundle
 
-# --- EXECUTION ---
-ocr_noise = """
---- EXTRACTED TEXT ---
-Test Report
-K.P. Patil Building,
-Near Shivaji Maharaj Statue,
-Mohopada, Tal. Khalapur,
-Olst. Raigad - 410 222.
+def main():
+    parser = argparse.ArgumentParser(description="EMR Universal OCR Parser")
+    parser.add_argument("input_file", nargs="?", type=argparse.FileType("r"), default=sys.stdin, 
+                        help="Path to raw OCR text file (or pipe input)")
+    args = parser.parse_args()
 
-Ue RTL
-
- 
-
-\ SHREE DIAGNOSTIC
-
+    raw_text = args.input_file.read()
+    engine = EMREngine()
+    fhir_bundle = engine.parse(raw_text)
     
- 
-     
-       
- 
- 
-     
+    print(json.dumps(fhir_bundle, indent=2))
 
-Pati mC 5 :
-Y | : i Geader sMale
-
-.
-
-HBB doctor. 7-Apr-2025 10-1 AM
-ao |
-
-|
-
-i, oon & ¢ OUNT C c ne ra
-
-tHlemoptohin
-
-  
-
-11.6 ginfdl 130-17.0
-
-racked Cell VY, . ~y
-
-6 Packed Coll Volume CHCT) 452 %, 40-50
-RB -
-
-sunt 5.10 mill/emm BGG
-Mean Cell Volume( MCV) BAG n WS-10T
-‘Mean Celi Hemoplobin( MCHY 22.7 pr 27-33
-Mean Ceil Hb Conc( MCHC) 25.7 xy 32-38
-Toil WBC Count 9200 cells/euram 4000-11000
-Differential % WBCs count
-Neutrophils 66 yy 30-70
-Lymphocytes 24 : XY, 20-40
-t i esinophits 4 % LG
-
-PI, recy
-Monocytes 06 % 0-10
-PO ey
-Absolute Differential Count:
-Absolute Neutrophils Count 6072 feumm 2000-7000
-Absolute Lymphocytes Count 2208 /Joumm 1000-3000
-Absolute Monocytes Count 952 / cute 200-1000
-Absolute Eosinophils Count, AEC 30H /eunm 20-500
-Platelet Count 398000 cetls/cumm FY
-Ponte ec La pectence
-
-ENO OF REPORT
-
-Scan to Valtdate £5 .
-
-Or. Swapnil V.Sirmukaddam
-M.0 (#athalogy)
-
-  
-
-purpose.
-ton with clinical Sndeng
-
- 
-
-reco gree
-"""
-
-pipeline = RobustEMRExtractor()
-fhir_json = pipeline.process_ocr(ocr_noise)
-
-print(json.dumps(fhir_json, indent=2))
+if __name__ == "__main__":
+    main()
