@@ -76,7 +76,7 @@ import json
 
 try:
     from model import create_model
-    from dataset import MedicalDocumentDataset, collate_fn
+    from dataset import OCRDataset, collate_fn
     from utils import get_device, save_checkpoint, calculate_cer, print_model_info
     print("All imports successful!")
 except ImportError as e:
@@ -85,25 +85,83 @@ except ImportError as e:
     sys.exit(1)
 
 # ============================================================================
-# SECTION 5: Prepare Dataset
+# SECTION 5: Load Raw Data and Create Splits
 # ============================================================================
 print("\n" + "=" * 80)
-print("SECTION 5: Prepare Dataset")
+print("SECTION 5: Load Raw Data and Create Splits")
 print("=" * 80)
 
-data_prep_script = f'{base_path}/ocr_model/data_processing/prepare_dataset.py'
+import random
+from pathlib import Path
 
-print(f"Running dataset preparation from: {data_prep_script}")
-result = subprocess.run([
-    'python', data_prep_script,
-    '--prescriptions-dir', f'{base_path}/data/data1',
-    '--lab-reports-dir', f'{base_path}/data/lbmaske',
-    '--output-dir', f'{base_path}/ocr_model/data/processed'
-], capture_output=True, text=True)
+def load_image_text_pairs(data_dir):
+    """Load image-text pairs directly from Input/Output structure"""
+    pairs = []
+    input_dir = Path(data_dir) / 'Input'
+    output_dir = Path(data_dir) / 'Output'
+    
+    if not input_dir.exists() or not output_dir.exists():
+        print(f"Warning: {data_dir} structure not found")
+        return []
+    
+    # Find all image files
+    for img_file in input_dir.glob('*'):
+        if img_file.suffix.lower() in {'.jpg', '.jpeg', '.png', '.bmp', '.tiff'}:
+            # Get corresponding text file
+            txt_file = output_dir / (img_file.stem + '.txt')
+            
+            if txt_file.exists():
+                try:
+                    with open(txt_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        text = f.read().strip()
+                    
+                    # Only include non-empty texts
+                    if text and len(text) > 0:
+                        pairs.append({
+                            'image': str(img_file),
+                            'text': text
+                        })
+                except Exception as e:
+                    print(f"Error reading {txt_file}: {e}")
+    
+    return pairs
 
-print(result.stdout)
-if result.stderr:
-    print("STDERR:", result.stderr)
+# Load data from both directories
+print("Loading prescription data...")
+prescription_pairs = load_image_text_pairs(f'{base_path}/data/data1')
+print(f"  Found {len(prescription_pairs)} prescription pairs")
+
+print("Loading lab report data...")
+lab_pairs = load_image_text_pairs(f'{base_path}/data/lbmaske')
+print(f"  Found {len(lab_pairs)} lab report pairs")
+
+# Combine and shuffle all data
+all_pairs = prescription_pairs + lab_pairs
+print(f"Total pairs loaded: {len(all_pairs)}")
+
+if len(all_pairs) == 0:
+    print("ERROR: No image-text pairs found!")
+    print(f"  Prescription Input: {Path(f'{base_path}/data/data1/Input').exists()}")
+    print(f"  Prescription Output: {Path(f'{base_path}/data/data1/Output').exists()}")
+    print(f"  Lab Input: {Path(f'{base_path}/data/lbmaske/Input').exists()}")
+    print(f"  Lab Output: {Path(f'{base_path}/data/lbmaske/Output').exists()}")
+    sys.exit(1)
+
+random.seed(42)
+random.shuffle(all_pairs)
+
+# Create train/val/test splits (80/10/10)
+train_size = int(0.8 * len(all_pairs))
+val_size = int(0.1 * len(all_pairs))
+
+train_pairs = all_pairs[:train_size]
+val_pairs = all_pairs[train_size:train_size + val_size]
+test_pairs = all_pairs[train_size + val_size:]
+
+print(f"\nData split:")
+print(f"  Train: {len(train_pairs)} samples")
+print(f"  Val: {len(val_pairs)} samples")
+print(f"  Test: {len(test_pairs)} samples")
 
 # ============================================================================
 # SECTION 6: Load Datasets
@@ -112,22 +170,26 @@ print("\n" + "=" * 80)
 print("SECTION 6: Load Datasets")
 print("=" * 80)
 
-train_dataset = MedicalDocumentDataset(
-    f'{base_path}/ocr_model/data/processed/train',
+# Create datasets directly from pairs
+train_dataset = OCRDataset(
+    image_paths=[p['image'] for p in train_pairs],
+    texts=[p['text'] for p in train_pairs],
     img_height=64,
     img_width=256,
     augment=True
 )
 
-val_dataset = MedicalDocumentDataset(
-    f'{base_path}/ocr_model/data/processed/val',
+val_dataset = OCRDataset(
+    image_paths=[p['image'] for p in val_pairs],
+    texts=[p['text'] for p in val_pairs],
     img_height=64,
     img_width=256,
     augment=False
 )
 
-test_dataset = MedicalDocumentDataset(
-    f'{base_path}/ocr_model/data/processed/test',
+test_dataset = OCRDataset(
+    image_paths=[p['image'] for p in test_pairs],
+    texts=[p['text'] for p in test_pairs],
     img_height=64,
     img_width=256,
     augment=False
