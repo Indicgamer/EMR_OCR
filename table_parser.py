@@ -1,259 +1,121 @@
-from transformers import pipeline
 import re
 import json
+import uuid
+from datetime import datetime
 
-class SimpleMedicalNER:
+class PreciseMedicalPipeline:
     def __init__(self):
-        # Load a lightweight, high-speed Biomedical NER model
-        print("[*] Initializing NER Engine...")
-        self.ner_model = pipeline(
-            "ner", 
-            model="d4data/biomedical-ner-all", 
-            aggregation_strategy="simple"
-        )
-        
-        # Simple fallback mapping for LOINC codes (Stage 5 PDF 3)
-        self.loinc_codes = {
-            "HEMOGLOBIN": "718-7",
-            "RBC COUNT": "2897-1",
-            "WBC": "6690-2",
-            "PLATELET COUNT": "777-3"
+        # Official LOINC Mapping (PDF 4 Standards)
+        # We include common OCR variants found in your text
+        self.clinical_map = {
+            "HAEMOGLOBIN": "718-7",
+            "R.B.C. COUNT": "2897-1",
+            "HAEMATOCRIT": "20570-8",
+            "M.C.V.": "30428-7",
+            "M.C.H.": "28539-4",
+            "M.C.H.C.": "28540-2",
+            "W.B.C. COUNT": "6690-2",
+            "PLATELET COUNT": "777-3",
+            "NEUTROPHILS": "770-8",
+            "LYMPHOCYTES": "731-0"
         }
 
-    def extract(self, text):
-        # 1. Run NER on the text
-        # This identifies 'Diagnostic_procedure' (Tests) and 'Lab_value' (Numbers)
-        entities = self.ner_model(text)
-        
-        extracted_results = []
-        
-        # 2. Structural Parsing logic for your specific tabular text
-        # Because Tesseract separates labels and values, we find labels and then 
-        # look for the nearest numbers.
-        
-        # Extract labels found by NER
-        labels = [e['word'].upper() for e in entities if e['entity_group'] in ['Diagnostic_procedure', 'Detailed_description']]
-        # Extract values using a simple Regex for speed (Stage 3 PDF 3)
-        values = re.findall(r"[-+]?\d*\.\d+|\d+", text)
+    def stage_2_extract(self, ocr_text):
+        extracted_data = []
+        lines = ocr_text.split('\n')
 
-        # Match labels to values (based on the order they appear in your OCR output)
-        # Your OCR output lists labels first, then values.
-        for i in range(min(len(labels), len(values))):
-            test_name = labels[i]
-            # Clean common OCR noise from labels
-            test_name = re.sub(r'[^A-Z\s]', '', test_name).strip()
+        for line in lines:
+            line_upper = line.upper()
             
-            if len(test_name) > 2: # Ignore tiny noise strings
-                extracted_results.append({
-                    "test": test_name,
-                    "value": values[i],
-                    "loinc": self.loinc_codes.get(test_name, "30428-7"), # Default to MCV if unknown
-                    "unit": "standard"
-                })
+            # Check for anchors in each line
+            for label, loinc in self.clinical_map.items():
+                if label in line_upper:
+                    # REGEX: Find the first decimal or integer following the label
+                    # We ignore ranges like 13.0-17.0 by stopping at the first match
+                    match = re.search(r"[:>]\s*(\d+\.?\d*)", line)
+                    
+                    if match:
+                        value = match.group(1)
+                        extracted_data.append({
+                            "test": label,
+                            "loinc": loinc,
+                            "value": float(value),
+                            "unit": self._detect_unit(line)
+                        })
+                    break # Move to next line once a label is found
+        
+        return extracted_data
 
-        return extracted_results
+    def _detect_unit(self, line):
+        if 'G/DL' in line.upper() or 'GM/DL' in line.upper(): return "g/dL"
+        if '%' in line: return "%"
+        if 'FL' in line.upper(): return "fL"
+        if 'PG' in line.upper(): return "pg"
+        return "units"
+
+    def stage_3_fhir(self, data):
+        """Stage 7 of PDF 3: Integration into EHR (FHIR)"""
+        bundle = {
+            "resourceType": "Bundle",
+            "type": "collection",
+            "entry": []
+        }
+
+        for item in data:
+            observation = {
+                "resource": {
+                    "resourceType": "Observation",
+                    "id": str(uuid.uuid4())[:8],
+                    "status": "final",
+                    "code": {
+                        "coding": [{"system": "http://loinc.org", "code": item["loinc"], "display": item["test"]}]
+                    },
+                    "valueQuantity": {
+                        "value": item["value"],
+                        "unit": item["unit"]
+                    },
+                    "effectiveDateTime": datetime.now().isoformat()
+                }
+            }
+            bundle["entry"].append(observation)
+        
+        return bundle
 
 # --- EXECUTION ---
-# Using the specific OCR output you provided
-raw_text = """
---- EXTRACTED TEXT ---
-GE Te ve0! TENOR
-
-PLATELET INDICES -
-PLATELET COUNT
-
-PLATELET INDICES -
-Pow
-
-PLATELET INDICES - MPV
-
-PLATELET INDICES - P-
-LCR
-
-PLATELET INDICES - PCT
-
-PSSR.MO
-
-PSS W.MO
-
-PERIPHERAL SMEAR
-STUDY - PLATELETS
-
-PERIPHERAL SMEAR
-STUDY - PARASITE
-
-PERIPHERAL SMEAR
-STUDY - Note
-
-HEMOGLOBIN
-
-RBC COUNT
-
-PACKED CELL
-VOLUME(PCV)
-
-RBC INDICES - MCV
-
-RBC INDICES - MCH
-
-RBC INDICES - MCHC
-RBC INDICES - R.D.W.- SD
-RBC INDICES - R.D.W.- CV
-
-RBC INDICES - WBC
-
-125000
-/cumm
-
-10.9 fL
-
-10.6 f~L
-
-30.0 %
-
-0.13 %
-
-Mild
-Anisocytosi
-s, Mild
-Microcytosi
-s, Mild
-Hypochrom
-ia, few
-pencil cells
-seen.
-Within
-Normal
-Limits.
-
-Mild
-Reduction.
-
-Not
-detected
-
-11.0 gm%
-
-4.83
-mil/cumm
-
-35.3%
-
-73.08 fL
-22.77 pgm
-31.16 g/dL
-449
-
-16.9
-
-6220
-fcumm
-
-117000
-{comm
-
-13.7 ff
-
-10.8 fi
-
-32.3%
-
-0.13 %
-
-Mild
-Anisocytosi
-s, Mild
-Microcytosi
-s, Mild
-Hypochrom
-ia.
-
-Mild
-leucocytosis
-
-Mild
-Reduction.
-
-Not
-detected
-
-Suggested -
-Fe
-supplement
-. Close
-Follow up
-for Hb.
-
-9.6 gm%
-
-4.21
-mil/eumm
-
-30.2%
-
-71.73 fl.
-22.80 pgm
-31.79 g/dL
-43.0
-
-16.4
-
-12880
-/cumm
-
-209000
-/cumm
-
-12.2 fL
-
-10.4 fL
-
-28.3 %
-
-0.22 %
-
-Mild
-Anisocytosi
-s, Mild
-Microcytosi
-s, Mild
-Hypochromi
-a, Few
-pencil cells
-seen.
-
-Mild
-Poltymorpho
-nuclear
-Leucocytosi
-s with mild
-left shift.
-
-Adequate
-
-Not
-detected
-
-9.6 gm%
-
-3.98
-mil/eumm
-
-29.5%
-
-74.12
-24.12 pgm
-32.54 p/dL
-43.4
-
-16.8
-
-14310
-/cumm
-"""
-
-extractor = SimpleMedicalNER()
-structured_data = extractor.extract(raw_text)
-
-print("\n--- STAGE 2: NER EXTRACTED DATA ---")
-print(json.dumps(structured_data, indent=2))
+ocr_output = """se / i oft S. Vadhavkar
+/ é cc. (Micro). O FAL.
+SHREE pal 27 row
+AN OES |. / pAmoLogtcal
+‘’ # COMPUTERISED
+Tine 18.00 em to 8.00 pm * Sunday-8:00t0 12.00 r100n 7 Q yavesRon caves
+ms it |
+— tC —_ 7;
+a: : Dr. BHAVESH CHAUHAN MD es 2 Po
+: Shree Hospital IPD HR tine: N° 2:47:26
+Sample Id : 10436879 Report Release Timo =: FN 13:42:13
+COMPLETE BLOOD COUNT
+Test Result Unit Biological Ref. Range
+, © Haemoglobin > 9.10 (L) gmid! © 13.0-17.0 gnvdl
+Total R.B.C. Count > 3.19 [L] millcmm 4.5-5.5 millicmm
+Haematocrit (PCV/HCT) : 27.20 [L) %o 40.0-50.0 %
+Mean Corpuscular Volume (M.C.V.) : 86.30 fl 83.0-95.0 fi
+Mean Corpuscular Hb (M.C.H.) : 28.50 Pg 27.0-32.0 Pg
+Mean Corpuscular Hb Cone (M.C.H.C.) : 33.50 g/dl 31.5-34.5 g/dl
+{ #} Red cell Distribution Width (R.D.W.-: 16.5 [H] % 11.6-14.6 %
+cv)
+Total W.B.C. Count : 10560 [H] ful 4000-10000 /ul
+DIFFERENTIAL COUNT:
+Neutrophils : 87.7 [H) % 40-70 %
+Lymphocytes : 5.9 [L} % 20-40 %
+Eosinophils > 07 % 16%
+Monocytes : «5.5 % 2-10 %
+Basophils : 0.2 % 0-1 %
+PLATELETS."""
+
+pipeline = PreciseMedicalPipeline()
+# 1. Extract
+structured_entities = pipeline.stage_2_extract(ocr_output)
+# 2. FHIR-ize
+fhir_json = pipeline.stage_3_fhir(structured_entities)
+
+print(json.dumps(fhir_json, indent=2))
