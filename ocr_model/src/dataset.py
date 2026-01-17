@@ -36,12 +36,10 @@ class OCRDataset(Dataset):
         
         # Build character set
         self.char_set = self._build_char_set()
-        # IMPORTANT: Index 0 is reserved for CTC blank character
-        # Character indices start from 1
-        self.char2idx = {char: (idx + 1) for idx, char in enumerate(self.char_set)}
-        self.idx2char = {(idx + 1): char for char, idx in self.char2idx.items()}
-        # Add blank character mapping
-        self.idx2char[0] = ''  # Blank character
+        # Character indices: 0-115 for characters
+        # CTC blank is handled automatically by CTCLoss (blank_idx parameter defaults to 0)
+        self.char2idx = {char: idx for idx, char in enumerate(self.char_set)}
+        self.idx2char = {idx: char for char, idx in self.char2idx.items()}
         
         # Data augmentation pipeline
         self.augment_transforms = A.Compose([
@@ -156,12 +154,9 @@ class MedicalDocumentDataset(Dataset):
         
         # Build character set
         self.char_set = self._build_char_set()
-        # IMPORTANT: Index 0 is reserved for CTC blank character
-        # Character indices start from 1
-        self.char2idx = {char: (idx + 1) for idx, char in enumerate(self.char_set)}
-        self.idx2char = {(idx + 1): char for char, idx in self.char2idx.items()}
-        # Add blank character mapping
-        self.idx2char[0] = ''  # Blank character
+        # Simple mapping: character index 0-115
+        self.char2idx = {char: idx for idx, char in enumerate(self.char_set)}
+        self.idx2char = {idx: char for char, idx in self.char2idx.items()}
         
         print(f"Loaded {len(self.samples)} samples")
         print(f"Character set size: {len(self.char_set)}")

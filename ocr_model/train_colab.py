@@ -258,10 +258,11 @@ print("=" * 80)
 device = get_device()
 
 # Create model
-# num_classes should be len(char_set) + 1 to account for CTC blank at index 0
+# num_classes = len(char_set) which are indices 0-(len-1)
+# CTC handles blank automatically
 model = create_model(
     model_type="CRNN",
-    num_classes=len(train_dataset.char_set) + 1,
+    num_classes=len(train_dataset.char_set),
     pretrained=True
 )
 
