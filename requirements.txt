@@ -1,0 +1,9 @@
+torch
+torchvision
+transformers
+datasets
+evaluate
+jiwer
+accelerate
+scikit-learn
+pillow
