@@ -14,7 +14,7 @@ class MedicalLayoutOCR:
             use_angle_cls=True, 
             # use_gpu=True,      # Changed to True for T4 GPU
             ir_optim=False,     # Still False to avoid the AnalysisConfig error
-            show_log=False
+            # show_log=False
         )
 
     def get_layout_rows(self, img_path):
