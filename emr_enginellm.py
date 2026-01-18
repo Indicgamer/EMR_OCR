@@ -24,11 +24,11 @@ class GroqEMREngine:
 
         REQUIRED TASKS:
         1. PATIENT/DOCTOR IDENTIFICATION: Extract Patient Name, Age, Sex, and Doctor Name.
-        1. OCR HEALING: Correct medical misspellings (e.g., 'Haemoglobln' -> 'Hemoglobin').
-        2. ENTITY EXTRACTION: Extract ALL medical tests, results, and units.
-        3. SHIELDING: Isolate the 'Patient Result' from the 'Reference Range'. Ignore flags like [H] or [L].
-        4. STANDARDIZATION: Map each test to its standard LOINC code.
-        5. OUTPUT: Return ONLY a valid JSON FHIR Bundle.
+        2. OCR HEALING: Correct medical misspellings (e.g., 'Haemoglobln' -> 'Hemoglobin').
+        3. ENTITY EXTRACTION: Extract ALL medical tests, results, and units.
+        4. SHIELDING: Isolate the 'Patient Result' from the 'Reference Range'. Ignore flags like [H] or [L].
+        5. STANDARDIZATION: Map each test to its standard LOINC code.
+        6. OUTPUT: Return ONLY a valid JSON FHIR Bundle.
 
         OCR TEXT:
         {raw_text}

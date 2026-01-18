@@ -50,20 +50,21 @@ def perform_layout_ocr(img_path):
 
 def nlp_fhir_extraction(raw_text):
     client = get_nlp_client()
-    # Prompt explicitly asks for full FHIR Metadata
+    # UPDATED PROMPT: Added strict deduplication and accuracy instructions
     prompt = f"""
     Act as a specialized Clinical NLP Engine. 
     Perform Named Entity Recognition (NER) and output a valid HL7 FHIR R4 JSON Bundle.
     
-    INSTRUCTIONS:
-        0. PATIENT/DOCTOR IDENTIFICATION: Extract Patient Name, Age, Sex, and Doctor Name.
-        1. OCR HEALING: Correct medical misspellings (e.g., 'Haemoglobln' -> 'Hemoglobin').
-        2. ENTITY EXTRACTION: Extract ALL medical tests, results, and units.
-        3. SHIELDING: Isolate the 'Patient Result' from the 'Reference Range'. Ignore flags like [H] or [L].
-        4. STANDARDIZATION: Map each test to its standard LOINC code.
-        5. OUTPUT: Return ONLY a valid JSON FHIR Bundle.
-        6. DONOT REPEAT THE MEDICAL FIELDS IN THE BUNDLE.
-    SOURCE TEXT:
+    STRICT REQUIREMENTS:
+    1. OCR HEALING: Correct medical misspellings (e.g., 'Haemoglobln' -> 'Hemoglobin').
+    2. ENTITY EXTRACTION: Extract ALL medical tests, results, and units.
+    3. DEDUPLICATION: Ensure each clinical test or field (e.g., Hemoglobin) appears ONLY ONCE in the bundle. 
+    4. ACCURACY: Extract numeric results exactly as they appear.Isolate the 'Patient Result' from the 'Reference Range'.
+    6. RESOURCE MAPPING: Create unique 'Patient', 'Practitioner', and 'Observation' resources.
+    7. METADATA: Include 'status': 'final' and 'category': 'laboratory'.
+    8. ONTOLOGY: Map every test to the http://loinc.org system.
+
+    SOURCE OCR TEXT:
     {raw_text}
     """
     
@@ -71,7 +72,7 @@ def nlp_fhir_extraction(raw_text):
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
-        temperature=0.1
+        temperature=0.0 # Lowest temperature for maximum accuracy
     )
     return json.loads(completion.choices[0].message.content)
 
@@ -81,8 +82,8 @@ st.markdown("#### **Standardized Clinical Pipeline**: Automated OCR Layout & HL7
 
 st.sidebar.title("System Standards")
 st.sidebar.success("✅ HL7 FHIR R4 Compliant")
+st.sidebar.success("✅ Deduplication Active")
 st.sidebar.success("✅ LOINC Ontology Mapped")
-st.sidebar.success("✅ ABDM Interoperable")
 
 uploaded_file = st.file_uploader("📤 Ingest Clinical Document (JPG/PNG)", type=["jpg", "jpeg", "png"])
 
@@ -104,29 +105,43 @@ if uploaded_file:
                 with st.spinner("Executing Clinical NER & FHIR Mapping..."):
                     fhir_data = nlp_fhir_extraction(ocr_text)
                 
-                # --- DATA DISPLAY TABS ---
-                tab1, tab2, tab3 = st.tabs(["📋 Clinical Dashboard", "🔬 FHIR Technical View", "📄 Raw Bundle"])
-
-                # DATA PARSING
+                # --- DEDUPLICATION & PARSING LOGIC ---
                 patient_data = {"name": "N/A", "id": "N/A", "gender": "N/A"}
-                observations = []
+                unique_observations = {} # Dictionary to prevent duplicates
 
                 for entry in fhir_data.get('entry', []):
                     res = entry.get('resource', {})
-                    if res.get('resourceType') == 'Patient':
-                        patient_data['name'] = res.get('name', [{}])[0].get('text', 'N/A')
+                    rtype = res.get('resourceType')
+                    
+                    if rtype == 'Patient':
+                        names = res.get('name', [{}])
+                        patient_data['name'] = names[0].get('text') or names[0].get('family', 'N/A')
                         patient_data['gender'] = res.get('gender', 'N/A').capitalize()
                         patient_data['id'] = res.get('id', 'local-001')
-                    elif res.get('resourceType') == 'Observation':
-                        observations.append({
+                    
+                    elif rtype == 'Observation':
+                        test_name = res.get('code', {}).get('coding', [{}])[0].get('display', 'Unknown')
+                        loinc = res.get('code', {}).get('coding', [{}])[0].get('code', 'N/A')
+                        
+                        # Create a uniqueness key (Test Name + LOINC)
+                        # This ensures 'Hemoglobin' is not added twice even if it exists twice in the JSON
+                        key = f"{test_name}_{loinc}".upper()
+                        
+                        val_qty = res.get('valueQuantity', {})
+                        val = val_qty.get('value', res.get('valueString', 'N/A'))
+                        unit = val_qty.get('unit', '')
+
+                        unique_observations[key] = {
                             "Resource ID": res.get('id', 'obs-x'),
-                            "Test Name": res.get('code', {}).get('coding', [{}])[0].get('display', 'Unknown'),
-                            "Value": res.get('valueQuantity', {}).get('value', 'N/A'),
-                            "Unit": res.get('valueQuantity', {}).get('unit', ''),
-                            "LOINC": res.get('code', {}).get('coding', [{}])[0].get('code', 'N/A'),
-                            "Status": res.get('status', 'final'),
-                            "Category": "Laboratory"
-                        })
+                            "Test Name": test_name,
+                            "Result": val,
+                            "Unit": unit,
+                            "LOINC": loinc,
+                            "Status": res.get('status', 'final')
+                        }
+
+                # --- UI RENDERING ---
+                tab1, tab2, tab3 = st.tabs(["📋 Clinical Dashboard", "🔬 FHIR Technical View", "📄 Raw Bundle"])
 
                 with tab1:
                     st.markdown("### Patient Metadata")
@@ -137,29 +152,5 @@ if uploaded_file:
                     
                     st.divider()
                     st.subheader("Laboratory Results")
-                    if observations:
-                        df_summary = pd.DataFrame(observations)[["Test Name", "Value", "Unit"]]
-                        st.table(df_summary)
-
-                with tab2:
-                    st.subheader("FHIR Resource Mapping (LOINC Standard)")
-                    st.info("This view shows the internal mapping of clinical entities to universal standards.")
-                    if observations:
-                        # Showing the columns that prove FHIR implementation
-                        df_fhir = pd.DataFrame(observations)[["Resource ID", "Test Name", "LOINC", "Status", "Category"]]
-                        st.dataframe(df_fhir, use_container_width=True)
-                    
-                    st.markdown("---")
-                    st.markdown("**Resource Implementation Details:**")
-                    st.write("- **System:** `http://loinc.org` (Logical Observation Identifiers Names and Codes)")
-                    st.write("- **Interoperability:** JSON schema follows `HL7 FHIR R4` Bundle structure.")
-
-                with tab3:
-                    st.subheader("Final FHIR Bundle (JSON)")
-                    st.code(json.dumps(fhir_data, indent=2), language='json')
-                    st.download_button("📩 Download FHIR JSON", data=json.dumps(fhir_data, indent=2), file_name="EMR_Bundle.json")
-
-            except Exception as e:
-                st.error(f"EMR Pipeline Error: {str(e)}")
-else:
-    st.info("Ingest document to view FHIR resource mappings.")
+                    if unique_observations:
+                        df_summary = pd.DataFr
