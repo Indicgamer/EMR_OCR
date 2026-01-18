@@ -56,11 +56,12 @@ def nlp_fhir_extraction(raw_text):
     Perform Named Entity Recognition (NER) and output a valid HL7 FHIR R4 JSON Bundle.
     
     INSTRUCTIONS:
-    1. RESOURCE MAPPING: Create 'Patient', 'Practitioner', and 'Observation' resources.
-    2. METADATA: For Observations, include 'status' (final), 'category' (laboratory), and 'effectiveDateTime'.
-    3. ONTOLOGY: Map clinical tests to http://loinc.org system.
-    4. HEAL SPELLING: Standardize clinical nomenclature.
-    
+        0. PATIENT/DOCTOR IDENTIFICATION: Extract Patient Name, Age, Sex, and Doctor Name.
+        1. OCR HEALING: Correct medical misspellings (e.g., 'Haemoglobln' -> 'Hemoglobin').
+        2. ENTITY EXTRACTION: Extract ALL medical tests, results, and units.
+        3. SHIELDING: Isolate the 'Patient Result' from the 'Reference Range'. Ignore flags like [H] or [L].
+        4. STANDARDIZATION: Map each test to its standard LOINC code.
+        5. OUTPUT: Return ONLY a valid JSON FHIR Bundle.
     SOURCE TEXT:
     {raw_text}
     """
