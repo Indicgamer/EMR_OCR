@@ -7,7 +7,7 @@ from groq import Groq
 
 # --- CONFIGURATION ---
 # Paste your Groq API Key here
-GROQ_API_KEY = "PASTE_YOUR_GROQ_KEY_HERE"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 class GroqEMREngine:
     def __init__(self):
