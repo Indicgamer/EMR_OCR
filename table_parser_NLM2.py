@@ -2,111 +2,130 @@ import re
 import json
 import uuid
 import sys
+import argparse
 from datetime import datetime
 
-class OCRHealer:
-    """Stage 3: Heals character-to-number swaps common in noisy medical OCR"""
-    @staticmethod
-    def fix_value(val_str):
-        # OCR often swaps numbers for look-alike letters
+class ClinicalAtlas:
+    """Universal mapping of medical terms to LOINC codes"""
+    def __init__(self):
+        self.map = {
+            "718-7":  {"display": "Hemoglobin", "stems": ["HEMO", "HGB", "HB", "THLEMO", "HAEMO"]},
+            "2897-1":  {"display": "RBC Count", "stems": ["RBC", "RED CELL", "SUNT"]},
+            "6690-2":  {"display": "WBC Count", "stems": ["WBC", "WHITE", "LEUCO", "TOIL"]},
+            "777-3":   {"display": "Platelet Count", "stems": ["PLATE", "PLT", "PIATE", "PIATO"]},
+            "20570-8": {"display": "PCV / HCT", "stems": ["PCV", "HCT", "RACKED", "PACKED", "VOLUME"]},
+            "30428-7": {"display": "MCV", "stems": ["MCV", "BAG", "CELL VOLUME"]},
+            "28539-4": {"display": "MCH", "stems": ["MCH", "CELI HEMO", "MCHY"]},
+            "28540-2": {"display": "MCHC", "stems": ["MCHC", "CONC"]},
+            "770-8":   {"display": "Neutrophils", "stems": ["NEUT", "POLY"]},
+            "731-0":   {"display": "Lymphocytes", "stems": ["LYMPH"]},
+            "711-2":   {"display": "Eosinophils", "stems": ["EOSI", "ESINO"]},
+            "742-7":   {"display": "Monocytes", "stems": ["MONO"]},
+            "2160-0":  {"display": "Creatinine", "stems": ["CREAT"]},
+            "22664-7": {"display": "Urea", "stems": ["UREA"]},
+            "2339-0":  {"display": "Glucose", "stems": ["GLUC", "SUGAR", "FBS", "PPBS"]},
+            "85354-9": {"display": "Blood Pressure", "stems": ["BP", "PRESSURE", "SYS", "DIA"]},
+            "8867-4":  {"display": "Pulse", "stems": ["PULSE", "HEART RATE", "HR"]},
+            "2708-6":  {"display": "SpO2", "stems": ["SPO2", "OXYGEN", "SATURATION"]}
+        }
+
+class GeneralEMREngine:
+    def __init__(self):
+        self.atlas = ClinicalAtlas().map
+
+    def _heal_numeric(self, val_str):
+        """Fixes OCR character swaps and handles missing decimals"""
         swaps = {'B': '8', 'G': '6', 'S': '5', 'O': '0', 'I': '1', 'l': '1', 'A': '4'}
         for char, num in swaps.items():
             val_str = val_str.replace(char, num)
         
-        # Extract only the numeric part
-        clean = re.sub(r'[^0-9\.]', '', val_str)
+        # Extract numeric part
+        clean = re.sub(r'[^0-9\.\/]', '', val_str)
         
-        # Logic for missing decimals (e.g., '452' -> '45.2' for PCV)
-        if clean.isdigit() and len(clean) == 3 and not clean.startswith('0'):
-             # If it's a 3-digit number like 452 or 116, it's likely a missing decimal
-             return f"{clean[:2]}.{clean[2:]}"
+        # Handle 3-digit missing decimals (e.g. 116 -> 11.6 or 452 -> 45.2)
+        if clean.replace('.', '').isdigit() and len(clean) == 3 and not clean.startswith('0'):
+            if '.' not in clean:
+                return f"{clean[:2]}.{clean[2:]}"
         return clean
 
-class MasterRegistry:
-    """Stage 5: Maps garbled medical terms to standard LOINC codes"""
-    def __init__(self):
-        self.data = {
-            "718-7":  {"display": "Hemoglobin", "stems": ["HEMO", "THLEM", "HGB", "HB"]},
-            "20570-8": {"display": "PCV / HCT", "stems": ["PCV", "HCT", "RACKED", "PACKED", "VOLUME"]},
-            "2897-1":  {"display": "RBC Count", "stems": ["RBC", "SUNT", "RED CELL"]},
-            "30428-7": {"display": "MCV", "stems": ["MCV", "CELL VOLUME", "BAG"]},
-            "28539-4": {"display": "MCH", "stems": ["MCHY", "CELI HEMO", "MCH "]},
-            "28540-2": {"display": "MCHC", "stems": ["MCHC", "CONC"]},
-            "6690-2":  {"display": "WBC Count", "stems": ["WBC", "TOIL", "WHITE"]},
-            "770-8":   {"display": "Neutrophils", "stems": ["NEUT", "POLY"]},
-            "731-0":   {"display": "Lymphocytes", "stems": ["LYMPH"]},
-            "711-2":   {"display": "Eosinophils", "stems": ["ESINO", "EOSI"]},
-            "742-7":   {"display": "Monocytes", "stems": ["MONO"]},
-            "777-3":   {"display": "Platelet Count", "stems": ["PLATE", "PIATE"]}
-        }
-
-class FinalEMRPipeline:
-    def __init__(self):
-        self.registry = MasterRegistry().data
-        self.healer = OCRHealer()
-
-    def parse(self, text):
-        fhir_entries = []
-        lines = text.split('\n')
+    def parse(self, raw_text):
+        text_upper = raw_text.upper()
         
-        for line in lines:
-            line_upper = line.upper()
+        # 1. Locate all "Clinical Anchors" in the text
+        anchors = []
+        for code, info in self.atlas.items():
+            for stem in info['stems']:
+                for m in re.finditer(re.escape(stem), text_upper):
+                    anchors.append({"code": code, "display": info['display'], "start": m.start()})
+
+        # 2. Locate all "Numeric Values" in the text
+        numbers = []
+        # Matches BP (120/80), Decimals (11.6), and Integers (9200)
+        num_pattern = r"(\d{2,3}\/\d{2,3}|\d+\.\d+|\d+)"
+        for m in re.finditer(num_pattern, text_upper):
+            val = m.group(1)
+            # Skip common years to reduce noise
+            if val in ["2024", "2025", "2026"]: continue
+            numbers.append({"val": self._heal_numeric(val), "start": m.start()})
+
+        # 3. Proximity Matching Engine
+        # For every number found, find the closest anchor that appears BEFORE it
+        clinical_results = {}
+        for num in numbers:
+            closest_anchor = None
+            min_dist = 150 # Max character distance to look back
             
-            # Find the best clinical anchor
-            matched_code = None
-            for code, info in self.registry.items():
-                if any(stem in line_upper for stem in info['stems']):
-                    matched_code = code
-                    break
+            for anchor in anchors:
+                dist = num['start'] - anchor['start']
+                if 0 < dist < min_dist:
+                    min_dist = dist
+                    closest_anchor = anchor
             
-            if matched_code:
-                # Extract numeric part (Stage 3)
-                # Look for sequences of digits/letters that look like numbers
-                raw_val_match = re.search(r"(\d+[\.\,]?\d*|[A-Z]*\d+[A-Z]*\d*)", line_upper)
-                if raw_val_match:
-                    raw_val = raw_val_match.group(1)
-                    clean_val = self.healer.fix_value(raw_val)
-                    
-                    try:
-                        val_float = float(clean_val)
-                        # Sanity check: ignore common OCR noise/years
-                        if val_float in [2025.0, 1.0, 0.0]: continue
-                        
-                        fhir_entries.append(self._create_obs(matched_code, val_float))
-                    except:
-                        continue
+            if closest_anchor:
+                # Deduplicate: only keep the first value found for each test
+                code = closest_anchor['code']
+                if code not in clinical_results:
+                    clinical_results[code] = {
+                        "display": closest_anchor['display'],
+                        "code": code,
+                        "value": num['val']
+                    }
 
-        return self._build_bundle(fhir_entries)
+        return self._to_fhir(clinical_results.values())
 
-    def _create_obs(self, code, value):
-        info = self.registry[code]
-        return {
-            "fullUrl": f"urn:uuid:{uuid.uuid4()}",
-            "resource": {
-                "resourceType": "Observation",
-                "status": "final",
-                "code": {"coding": [{"system": "http://loinc.org", "code": code, "display": info['display']}]},
-                "valueQuantity": {"value": value, "unit": "units"}
-            }
-        }
-
-    def _build_bundle(self, entries):
-        # De-duplicate by code (keep only the first occurrence)
-        unique_entries = []
-        codes_seen = set()
-        for entry in entries:
-            c = entry['resource']['code']['coding'][0]['code']
-            if c not in codes_seen:
-                unique_entries.append(entry)
-                codes_seen.add(c)
-        
-        return {
+    def _to_fhir(self, data):
+        bundle = {
             "resourceType": "Bundle",
             "type": "collection",
             "timestamp": datetime.now().isoformat(),
-            "entry": unique_entries
+            "entry": []
         }
+        for item in data:
+            val_type = "valueString" if "/" in str(item['value']) else "valueQuantity"
+            entry = {
+                "fullUrl": f"urn:uuid:{uuid.uuid4()}",
+                "resource": {
+                    "resourceType": "Observation",
+                    "status": "final",
+                    "code": {"coding": [{"system": "http://loinc.org", "code": item['code'], "display": item['display']}]},
+                    val_type: {"value": float(item['value']) if val_type == "valueQuantity" else item['value']}
+                }
+            }
+            # Add units if it's a quantity
+            if val_type == "valueQuantity":
+                entry["resource"][val_type]["unit"] = "units"
+
+            bundle["entry"].append(entry)
+        return bundle
+
+def main():
+    parser = argparse.ArgumentParser(description="Universal EMR Proximity Parser")
+    parser.add_argument("input", nargs="?", type=argparse.FileType("r"), default=sys.stdin)
+    args = parser.parse_args()
+    
+    raw_text = args.input.read()
+    engine = GeneralEMREngine()
+    print(json.dumps(engine.parse(raw_text), indent=2))
 
 if __name__ == "__main__":
-    raw_ocr = sys.stdin.read()
-    print(json.dumps(FinalEMRPipeline().parse(raw_ocr), indent=2))
+    main()
