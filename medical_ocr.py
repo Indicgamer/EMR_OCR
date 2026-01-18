@@ -12,7 +12,7 @@ class MedicalLayoutOCR:
         self.ocr = PaddleOCR(
             lang='en', 
             use_angle_cls=True, 
-            use_gpu=True,      # Changed to True for T4 GPU
+            # use_gpu=True,      # Changed to True for T4 GPU
             ir_optim=False,     # Still False to avoid the AnalysisConfig error
             show_log=False
         )
