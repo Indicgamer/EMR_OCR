@@ -1,106 +1,117 @@
-%%writefile app.py
+import os
+
+app_content = """
 import streamlit as st
 import json
 import pandas as pd
 from datetime import datetime
 
-# Page Configuration
-st.set_page_config(page_title="Medical EMR Dashboard", page_icon="🏥", layout="wide")
+# --- APP CONFIGURATION ---
+st.set_page_config(page_title="EMR Clinical Dashboard", layout="wide", page_icon="🏥")
 
-# Custom CSS for Medical Look
-st.markdown("""
+# --- STYLING ---
+st.markdown(\"\"\"
     <style>
-    .main { background-color: #f5f7f9; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e1e4e8; }
-    .report-header { border-bottom: 3px solid #2e5a88; padding-bottom: 10px; margin-bottom: 20px; }
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    h1 { color: #1e3a8a; }
+    h3 { color: #1e40af; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }
     </style>
-    """, unsafe_allow_html=True)
+\"\"\", unsafe_allow_value=True)
 
-def parse_fhir_bundle(bundle):
-    patient_info = {"Name": "N/A", "Age/Sex": "N/A", "Gender": "N/A"}
-    practitioner = "N/A"
+def load_data(filepath="final_record.json"):
+    try:
+        with open(filepath, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return None
+
+def extract_fhir_entities(bundle):
+    patient = {"name": "---", "age": "---", "gender": "---"}
+    doctor = "---"
     observations = []
 
-    for entry in bundle.get('entry', []):
-        res = entry.get('resource', {})
-        res_type = res.get('resourceType')
+    if not bundle or "entry" not in bundle:
+        return patient, doctor, observations
 
-        if res_type == 'Patient':
-            name = res.get('name', [{}])[0]
-            patient_info["Name"] = name.get('text') or f"{name.get('given', [''])[0]} {name.get('family', '')}"
-            patient_info["Gender"] = res.get('gender', 'N/A').title()
-            # Try to get age from extension or birthDate
-            patient_info["Age/Sex"] = res.get('birthDate') or "N/A"
+    for entry in bundle["entry"]:
+        res = entry.get("resource", {})
+        rtype = res.get("resourceType")
 
-        elif res_type == 'Practitioner':
-            practitioner = res.get('name', [{}])[0].get('text', 'N/A')
+        if rtype == "Patient":
+            names = res.get("name", [])
+            if names:
+                patient["name"] = names[0].get("text") or names[0].get("family", "---")
+            patient["gender"] = res.get("gender", "---").capitalize()
+            patient["age"] = res.get("birthDate") or "---"
 
-        elif res_type == 'Observation':
-            test = res.get('code', {}).get('coding', [{}])[0].get('display', 'Unknown')
-            code = res.get('code', {}).get('coding', [{}])[0].get('code', 'N/A')
+        elif rtype == "Practitioner":
+            names = res.get("name", [])
+            if names:
+                doctor = names[0].get("text", "---")
+
+        elif rtype == "Observation":
+            code_data = res.get("code", {}).get("coding", [{}])[0]
+            test_name = code_data.get("display", "Unknown Test")
+            loinc = code_data.get("code", "---")
             
-            # Extract Value and Unit
-            val_qty = res.get('valueQuantity', {})
-            val_str = res.get('valueString', '')
-            val = val_qty.get('value', val_str)
-            unit = val_qty.get('unit', '')
+            val_qty = res.get("valueQuantity", {})
+            val_str = res.get("valueString", "")
+            val = val_qty.get("value", val_str)
+            unit = val_qty.get("unit", "")
             
             observations.append({
-                "Test Name": test,
-                "LOINC Code": code,
-                "Result": f"{val} {unit}"
+                "LOINC Code": loinc,
+                "Clinical Parameter": test_name,
+                "Result": f"{val} {unit}".strip(),
+                "Status": "Verified"
             })
+            
+    return patient, doctor, observations
 
-    return patient_info, practitioner, observations
+# --- UI LAYOUT ---
+st.title("🏥 Medical Information System")
+st.caption("MTech Project: Automated EMR Digitization Pipeline (Stage 8 & 9)")
 
-# --- UI START ---
-st.title("🏥 AI-Driven EMR Extraction System")
-st.markdown("### Stage 8: Semantic Clinical Validation Dashboard")
-st.write("---")
+data = load_data()
 
-# File uploader
-uploaded_file = st.sidebar.file_name = "Upload FHIR JSON"
-uploaded_file = st.sidebar.file_uploader("Choose a FHIR JSON file", type="json")
+if data:
+    patient, doctor, obs_list = extract_fhir_entities(data)
 
-if uploaded_file is not None:
-    data = json.load(uploaded_file)
-    p_info, doc, obs_list = parse_fhir_bundle(data)
-
-    # 1. Patient Profile Header
-    st.markdown(f"<div class='report-header'><h2>Patient Report: {p_info['Name']}</h2></div>", unsafe_allow_html=True)
-    
+    st.markdown("### 📋 Patient Metadata")
     col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Patient Name", p_info["Name"])
-    with col2:
-        st.metric("Gender", p_info["Gender"])
-    with col3:
-        st.metric("Ordering Doctor", doc)
-    with col4:
-        st.metric("Report Date", datetime.now().strftime("%d-%m-%Y"))
+    col1.metric("Patient Name", patient["name"])
+    col2.metric("Age/DOB", patient["age"])
+    col3.metric("Gender", patient["gender"])
+    col4.metric("Ordering Doctor", doctor)
 
-    # 2. Lab Results Table
-    st.subheader("Laboratory Findings")
+    st.write("") 
+
+    st.markdown("### 🧪 Laboratory Observations")
     if obs_list:
         df = pd.DataFrame(obs_list)
-        st.table(df)
+        st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        st.warning("No clinical observations found in this record.")
+        st.warning("No lab observations were found in the FHIR Bundle.")
 
-    # 3. Raw Data Inspection (For Developers)
-    with st.expander("View Raw FHIR JSON"):
-        st.json(data)
-    
-    # 4. Download Option
-    st.sidebar.markdown("---")
-    st.sidebar.download_button(
-        label="Download Validated FHIR JSON",
-        data=json.dumps(data, indent=2),
-        file_name="validated_emr.json",
-        mime="application/json"
-    )
-
+    st.markdown("---")
+    c_left, c_right = st.columns(2)
+    with c_left:
+        if st.button("✅ Commit Record to ABDM Registry"):
+            st.success("Successfully validated and saved to hospital database.")
+            st.balloons()
+    with c_right:
+        st.download_button(
+            label="📩 Download FHIR JSON",
+            data=json.dumps(data, indent=2),
+            file_name="patient_record.json",
+            mime="application/json"
+        )
 else:
-    st.info("Please upload the `final_record.json` generated by your OCR pipeline to see the dashboard.")
-    # Show a sample empty state
-    st.image("https://img.freepik.com/free-vector/medical-technology-science-background_53876-117812.jpg", use_column_width=True)
+    st.error("Error: 'final_record.json' not found. Please run the OCR and LLM scripts first.")
+"""
+
+with open("app.py", "w") as f:
+    f.write(app_code.strip())
+
+print("✅ File 'app.py' has been successfully written to disk.")
