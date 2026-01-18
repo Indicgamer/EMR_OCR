@@ -11,7 +11,7 @@ class MedicalLayoutOCR:
         # We enable use_gpu and keep ir_optim=False for stability
         self.ocr = PaddleOCR(
             lang='en', 
-            use_angle_cls=True, 
+           use_textline_orientation=True,
             # use_gpu=True,      # Changed to True for T4 GPU
             # ir_optim=False,     # Still False to avoid the AnalysisConfig error
             # show_log=False
