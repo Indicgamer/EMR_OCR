@@ -1,60 +1,75 @@
+import streamlit as st
 import os
-os.environ['DISABLE_MODEL_SOURCE_CHECK'] = 'True'
-
-import sys
+import subprocess
 import json
-import cv2
-from paddleocr import PaddleOCR
+import pandas as pd
+from PIL import Image
 
-class MedicalLayoutOCR:
-    def __init__(self):
-        # We enable use_gpu and keep ir_optim=False for stability
-        self.ocr = PaddleOCR(
-            use_angle_cls=True, 
-            lang='en', 
-            use_gpu=True,       # High speed on T4
-            show_log=False      # This will work again in 2.7.3
-        )
+# 1. Page Config
+st.set_page_config(page_title="EMR AI Digitizer", layout="wide", page_icon="🏥")
 
-    def get_layout_rows(self, img_path):
-        if not os.path.exists(img_path):
-            return f"Error: File {img_path} not found"
-
-        result = self.ocr.ocr(img_path, cls=True)
+# 2. Pipeline Function
+def run_pipeline(image_path):
+    try:
+        # OCR
+        ocr_process = subprocess.run(['python', 'medical_ocr.py', image_path], capture_output=True, text=True, check=True)
+        ocr_text = ocr_process.stdout
         
-        if not result or result[0] is None:
-            return ""
+        # LLM
+        llm_process = subprocess.run(['python', 'emr_enginellm.py'], input=ocr_text, capture_output=True, text=True, check=True, env=os.environ.copy())
+        return json.loads(llm_process.stdout)
+    except Exception as e:
+        return {"error": str(e)}
 
-        blocks = []
-        for line in result[0]:
-            box = line[0]
-            text = line[1][0]
-            y_center = (box[0][1] + box[2][1]) / 2
-            blocks.append({"text": text, "y": y_center, "x": box[0][0]})
+# 3. Main UI
+st.title("🏥 Medical Record Digitizer")
+st.markdown("---")
 
-        blocks.sort(key=lambda b: b['y'])
-        rows = []
-        if not blocks: return ""
+# Main Area Upload
+uploaded_file = st.file_uploader("Upload Lab Report (JPG/PNG)", type=["jpg", "png", "jpeg"])
 
-        current_row = [blocks[0]]
-        for i in range(1, len(blocks)):
-            if abs(blocks[i]['y'] - blocks[i-1]['y']) < 15:
-                current_row.append(blocks[i])
-            else:
-                rows.append(current_row)
-                current_row = [blocks[i]]
-        rows.append(current_row)
-
-        final_text = ""
-        for row in rows:
-            row.sort(key=lambda b: b['x'])
-            final_text += " ".join([b['text'] for b in row]) + "\n"
+if uploaded_file:
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        img = Image.open(uploaded_file)
+        st.image(img, caption="Original Document", use_container_width=True)
+        temp_path = "temp_img.png"
+        img.save(temp_path)
+    
+    with col2:
+        if st.button("🚀 Process Document", use_container_width=True):
+            with st.spinner("Extracting Data..."):
+                data = run_pipeline(temp_path)
             
-        return final_text
-
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python medical_ocr.py <image_path>")
-    else:
-        engine = MedicalLayoutOCR()
-        print(engine.get_layout_rows(sys.argv[1]))
+            if "error" in data:
+                st.error(data["error"])
+            else:
+                # Display Results
+                st.success("Extraction Successful!")
+                
+                # Metadata
+                st.subheader("📋 Patient Info")
+                # Logic to grab Patient/Doctor from FHIR Bundle
+                patient_name = "N/A"
+                for entry in data.get('entry', []):
+                    res = entry.get('resource', {})
+                    if res.get('resourceType') == 'Patient':
+                        patient_name = res.get('name', [{}])[0].get('text', 'N/A')
+                
+                st.write(f"**Patient Name:** {patient_name}")
+                
+                # Observations Table
+                obs = []
+                for entry in data.get('entry', []):
+                    res = entry.get('resource', {})
+                    if res.get('resourceType') == 'Observation':
+                        name = res.get('code', {}).get('coding', [{}])[0].get('display', 'Test')
+                        val = res.get('valueQuantity', {}).get('value', 'N/A')
+                        unit = res.get('valueQuantity', {}).get('unit', '')
+                        obs.append({"Test": name, "Result": f"{val} {unit}"})
+                
+                if obs:
+                    st.table(pd.DataFrame(obs))
+                
+                st.download_button("📩 Download FHIR JSON", data=json.dumps(data, indent=2), file_name="record.json")
