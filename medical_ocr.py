@@ -1,19 +1,26 @@
 import os
 os.environ['DISABLE_MODEL_SOURCE_CHECK'] = 'True'
 
-import cv2
-from paddleocr import PaddleOCR
 import sys
 import json
+import cv2
+from paddleocr import PaddleOCR
 
 class MedicalLayoutOCR:
-    def __init__(self):
-        # Initializing PaddleOCR
-        # We use a smaller model for speed in Colab
-        self.ocr = PaddleOCR(use_angle_cls=True, lang='en', show_log=False)
+   def __init__(self):
+        # We enable use_gpu and keep ir_optim=False for stability
+        self.ocr = PaddleOCR(
+            lang='en', 
+            use_angle_cls=True, 
+            use_gpu=True,      # Changed to True for T4 GPU
+            ir_optim=False,     # Still False to avoid the AnalysisConfig error
+            show_log=False
+        )
 
     def get_layout_rows(self, img_path):
-        # Perform OCR
+        if not os.path.exists(img_path):
+            return f"Error: File {img_path} not found"
+
         result = self.ocr.ocr(img_path, cls=True)
         
         if not result or result[0] is None:
@@ -23,11 +30,9 @@ class MedicalLayoutOCR:
         for line in result[0]:
             box = line[0]
             text = line[1][0]
-            # Get the center Y coordinate to group into rows
             y_center = (box[0][1] + box[2][1]) / 2
             blocks.append({"text": text, "y": y_center, "x": box[0][0]})
 
-        # Grouping logic (15px threshold)
         blocks.sort(key=lambda b: b['y'])
         rows = []
         if not blocks: return ""
@@ -41,18 +46,16 @@ class MedicalLayoutOCR:
                 current_row = [blocks[i]]
         rows.append(current_row)
 
-        # Build output string
         final_text = ""
         for row in rows:
-            row.sort(key=lambda b: b['x']) # Sort Left-to-Right
-            row_text = " ".join([b['text'] for b in row])
-            final_text += row_text + "\n"
+            row.sort(key=lambda b: b['x'])
+            final_text += " ".join([b['text'] for b in row]) + "\n"
             
         return final_text
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python medical_ocr_pro.py <image_path>")
+        print("Usage: python medical_ocr.py <image_path>")
     else:
         engine = MedicalLayoutOCR()
         print(engine.get_layout_rows(sys.argv[1]))
