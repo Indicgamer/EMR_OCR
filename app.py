@@ -59,11 +59,11 @@ def nlp_fhir_extraction(raw_text):
     1. OCR HEALING: Correct medical misspellings (e.g., 'Haemoglobln' -> 'Hemoglobin').
     2. ENTITY EXTRACTION: Extract ALL medical tests, results, and units.
     3. DEDUPLICATION: Ensure each clinical test or field (e.g., Hemoglobin) appears ONLY ONCE in the bundle. 
-    4. ACCURACY: Extract numeric results exactly as they appear.Isolate the 'Patient Result' from the 'Reference Range'.
-    6. RESOURCE MAPPING: Create unique 'Patient', 'Practitioner', and 'Observation' resources.
-    7. METADATA: Include 'status': 'final' and 'category': 'laboratory'.
-    8. ONTOLOGY: Map every test to the http://loinc.org system.
-
+    4. ACCURACY: Extract numeric results exactly as they appear.
+    5. RESOURCE MAPPING: Create unique 'Patient', 'Practitioner', and 'Observation' resources.
+    6. METADATA: Include 'status': 'final' and 'category': 'laboratory'.
+    7. ONTOLOGY: Map every test to the "http://loinc.org" system.
+    
     SOURCE OCR TEXT:
     {raw_text}
     """
@@ -153,4 +153,21 @@ if uploaded_file:
                     st.divider()
                     st.subheader("Laboratory Results")
                     if unique_observations:
-                        df_summary = pd.DataFr
+                        df_summary = pd.DataFrame(list(unique_observations.values()))[["Test Name", "Result", "Unit"]]
+                        st.table(df_summary)
+
+                with tab2:
+                    st.subheader("FHIR Resource Mapping (LOINC Standard)")
+                    if unique_observations:
+                        df_fhir = pd.DataFrame(list(unique_observations.values()))[["Resource ID", "Test Name", "LOINC", "Status"]]
+                        st.dataframe(df_fhir, use_container_width=True, hide_index=True)
+                    
+                with tab3:
+                    st.subheader("Final FHIR Bundle (JSON)")
+                    st.code(json.dumps(fhir_data, indent=2), language='json')
+                    st.download_button("📩 Download FHIR JSON", data=json.dumps(fhir_data, indent=2), file_name="EMR_Bundle.json")
+
+            except Exception as e:
+                st.error(f"EMR Pipeline Error: {str(e)}")
+else:
+    st.info("Ingest document to view FHIR resource mappings.")
