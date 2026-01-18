@@ -10,11 +10,10 @@ class MedicalLayoutOCR:
     def __init__(self):
         # We enable use_gpu and keep ir_optim=False for stability
         self.ocr = PaddleOCR(
+            use_angle_cls=True, 
             lang='en', 
-           use_textline_orientation=True,
-            # use_gpu=True,      # Changed to True for T4 GPU
-            # ir_optim=False,     # Still False to avoid the AnalysisConfig error
-            # show_log=False
+            use_gpu=True,       # High speed on T4
+            show_log=False      # This will work again in 2.7.3
         )
 
     def get_layout_rows(self, img_path):
