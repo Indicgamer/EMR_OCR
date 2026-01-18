@@ -7,7 +7,7 @@ import cv2
 from paddleocr import PaddleOCR
 
 class MedicalLayoutOCR:
-   def __init__(self):
+    def __init__(self):
         # We enable use_gpu and keep ir_optim=False for stability
         self.ocr = PaddleOCR(
             lang='en', 
