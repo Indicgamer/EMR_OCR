@@ -8,12 +8,13 @@ from google.colab import userdata
 
 # --- CONFIGURATION ---
 # Paste your Groq API Key here
-GROQ_API_KEY = userdata.get('GROQ_API_KEY')
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 
 class GroqEMREngine:
     def __init__(self):
+        if not GROQ_API_KEY:
+            raise ValueError("GROQ_API_KEY not found in environment variables.")
         self.client = Groq(api_key=GROQ_API_KEY)
-        # We use Llama 3.3 70B for its high clinical reasoning accuracy
         self.model = "llama-3.3-70b-versatile"
 
     def process_ocr(self, raw_text):
