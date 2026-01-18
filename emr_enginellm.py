@@ -4,10 +4,11 @@ import json
 import uuid
 from datetime import datetime
 from groq import Groq
+from google.colab import userdata
 
 # --- CONFIGURATION ---
 # Paste your Groq API Key here
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_API_KEY = userdata.get('GROQ_API_KEY')
 
 class GroqEMREngine:
     def __init__(self):
