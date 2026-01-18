@@ -62,6 +62,7 @@ def nlp_fhir_extraction(raw_text):
         3. SHIELDING: Isolate the 'Patient Result' from the 'Reference Range'. Ignore flags like [H] or [L].
         4. STANDARDIZATION: Map each test to its standard LOINC code.
         5. OUTPUT: Return ONLY a valid JSON FHIR Bundle.
+        6. DONOT REPEAT THE MEDICAL FIELDS IN THE BUNDLE.
     SOURCE TEXT:
     {raw_text}
     """
