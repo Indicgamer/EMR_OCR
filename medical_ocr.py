@@ -1,100 +1,68 @@
-import streamlit as st
 import os
-import json
-import pandas as pd
-from PIL import Image
-
-# Set Environment Variables BEFORE importing PaddleOCR
 os.environ['DISABLE_MODEL_SOURCE_CHECK'] = 'True'
 
-# Try to import your logic directly
-try:
-    from medical_ocr import MedicalLayoutOCR
-    from emr_enginellm import GroqEMREngine
-except ImportError:
-    st.error("Missing medical_ocr.py or emr_enginellm.py in the repository.")
+import sys
+import json
+import cv2
+from paddleocr import PaddleOCR
 
-# 1. Page Config
-st.set_page_config(page_title="EMR AI Digitizer", layout="wide", page_icon="🏥")
+class MedicalLayoutOCR:
+    def __init__(self):
+        # We enable use_gpu and keep ir_optim=False for stability
+        self.ocr = PaddleOCR(
+                    use_angle_cls=True, 
+        lang='en', 
+                use_textline_orientation=True,
+                    # use_gpu=True,      # Changed to True for T4 GPU
+                    # ir_optim=False,     # Still False to avoid the AnalysisConfig error
+                    # show_log=False
+                    use_gpu=True,       # High speed on T4
+                    show_log=False      # This will work again in 2.7.3
+        )
 
-# 2. Cache the Engines so they don't reload on every click
-@st.cache_resource
-def load_engines():
-    ocr = MedicalLayoutOCR()
-    llm = GroqEMREngine()
-    return ocr, llm
+    def get_layout_rows(self, img_path):
+        if not os.path.exists(img_path):
+            return f"Error: File {img_path} not found"
 
-# --- UI LAYOUT ---
-st.title("🏥 Smart EMR OCR Digitizer")
-st.markdown("#### MTech Project: Automated Clinical Pipeline")
+        result = self.ocr.ocr(img_path, cls=True)
 
-# Main Upload Area
-uploaded_file = st.file_uploader("📤 Upload Lab Report Image", type=["jpg", "jpeg", "png"])
+        if not result or result[0] is None:
+            return ""
 
-if uploaded_file:
-    col_img, col_info = st.columns([1, 1])
-    
-    # Save and Preview
-    temp_path = "temp_upload.png"
-    img = Image.open(uploaded_file)
-    img.save(temp_path)
-    
-    with col_img:
-        st.image(img, caption="Source Document", use_container_width=True)
+        blocks = []
+        for line in result[0]:
+            box = line[0]
+            text = line[1][0]
+            y_center = (box[0][1] + box[2][1]) / 2
+            blocks.append({"text": text, "y": y_center, "x": box[0][0]})
 
-    with col_info:
-        if st.button("🚀 Start Digitization", use_container_width=True):
-            try:
-                with st.spinner("Initializing AI Engines (First run may take a moment)..."):
-                    ocr_engine, llm_engine = load_engines()
+        blocks.sort(key=lambda b: b['y'])
+        rows = []
+        if not blocks:
+            return ""
 
-                # Step 1: OCR
-                with st.spinner("Extracting Layout & Text..."):
-                    raw_text = ocr_engine.get_layout_rows(temp_path)
-                
-                if not raw_text.strip():
-                    st.error("OCR returned empty text. Please ensure the image is clear.")
-                else:
-                    # Step 2: LLM Parsing
-                    with st.spinner("Processing Clinical Entities with Llama-3..."):
-                        fhir_bundle = llm_engine.process_ocr(raw_text)
+        current_row = [blocks[0]]
+        for i in range(1, len(blocks)):
+            if abs(blocks[i]['y'] - blocks[i-1]['y']) < 15:
+                current_row.append(blocks[i])
+            else:
+                rows.append(current_row)
+                current_row = [blocks[i]]
+        rows.append(current_row)
 
-                    if "error" in fhir_bundle:
-                        st.error(f"LLM Error: {fhir_bundle['error']}")
-                    else:
-                        # --- DISPLAY RESULTS ---
-                        st.success("Analysis Complete!")
-                        
-                        # Extract Patient Info
-                        patient_name = "N/A"
-                        doctor_name = "N/A"
-                        observations = []
+        final_text = ""
+        for row in rows:
+            row.sort(key=lambda b: b['x'])
+            final_text += " ".join([b['text'] for b in row]) + "\n"
 
-                        for entry in fhir_bundle.get('entry', []):
-                            res = entry.get('resource', {})
-                            rtype = res.get('resourceType')
-                            if rtype == 'Patient':
-                                patient_name = res.get('name', [{}])[0].get('text', 'N/A')
-                            elif rtype == 'Practitioner':
-                                doctor_name = res.get('name', [{}])[0].get('text', 'N/A')
-                            elif rtype == 'Observation':
-                                name = res.get('code', {}).get('coding', [{}])[0].get('display', 'Test')
-                                val = res.get('valueQuantity', {}).get('value', 'N/A')
-                                unit = res.get('valueQuantity', {}).get('unit', '')
-                                observations.append({"Parameter": name, "Result": f"{val} {unit}"})
+        return final_text
 
-                        # Show Info
-                        st.write(f"**Patient:** {patient_name} | **Doctor:** {doctor_name}")
-                        
-                        if observations:
-                            st.table(pd.DataFrame(observations))
-                        
-                        st.download_button(
-                            "📩 Download FHIR JSON", 
-                            data=json.dumps(fhir_bundle, indent=2), 
-                            file_name="clinical_record.json"
-                        )
-            except Exception as e:
-                st.error(f"System Error: {str(e)}")
-else:
-    st.info("Please upload a report to begin.")
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python medical_ocr.py <image_path>")
+    else:
+        image_path = sys.argv[1]
+        engine = MedicalLayoutOCR()
+        ocr_output = engine.get_layout_rows(image_path)
+        print("\n===== OCR OUTPUT =====\n")
+        print(ocr_output)
